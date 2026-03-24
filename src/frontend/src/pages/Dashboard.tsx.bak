@@ -246,7 +246,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }, 1200);
   };
 
-  useDashboardStats(); // kept to avoid removing the hook; data not used (per-user data in localStorage)
+  const { data: statsData, isLoading: statsLoading } = useDashboardStats();
   const [localStats, setLocalStats] = useState(() => {
     const saved = loadUserStats(currentUsername);
     return (
@@ -260,8 +260,17 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     );
   });
 
-  // Backend data is shared/global and must NOT override per-user localStorage stats.
-  // Stats are loaded from and saved to localStorage keyed by username.
+  useEffect(() => {
+    if (statsData) {
+      setLocalStats({
+        totalCurrentBalance: statsData.totalCurrentBalance,
+        lockedDeposit: statsData.lockedDeposit,
+        todayCommission: statsData.todayCommission,
+        transferIn: statsData.transferIn,
+        transferOut: statsData.transferOut,
+      });
+    }
+  }, [statsData]);
 
   useEffect(() => {
     saveUserStats(currentUsername, localStats);
@@ -1012,12 +1021,19 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                     </span>
                     <ChevronDown className="w-3 h-3 text-blue-300" />
                   </div>
-                  <div
-                    className="text-white text-3xl font-bold tracking-tight mb-3"
-                    style={{ textShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
-                  >
-                    {formatAmount(localStats.totalCurrentBalance)}
-                  </div>
+                  {statsLoading ? (
+                    <div
+                      className="h-9 w-32 bg-white/20 rounded animate-pulse mb-3"
+                      data-ocid="balance.loading_state"
+                    />
+                  ) : (
+                    <div
+                      className="text-white text-3xl font-bold tracking-tight mb-3"
+                      style={{ textShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
+                    >
+                      {formatAmount(localStats.totalCurrentBalance)}
+                    </div>
+                  )}
                   <div className="flex flex-col gap-1.5">
                     <div className="flex items-center gap-2">
                       <span
