@@ -1,31 +1,18 @@
 import { Toaster } from "@/components/ui/sonner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
-import AppLoadingScreen from "./pages/AppLoadingScreen";
 import Dashboard from "./pages/Dashboard";
 import LoginPage from "./pages/LoginPage";
 
 const queryClient = new QueryClient();
 
 export default function App() {
-  const [showLoader, setShowLoader] = useState<boolean>(() => {
-    // Show loader once per session
-    const shown = sessionStorage.getItem("bppay_loader_shown");
-    return !shown;
-  });
-
   const [loggedIn, setLoggedIn] = useState<boolean>(
     () => !!localStorage.getItem("bppay_current_user"),
   );
 
-  function handleLoaderDone() {
-    sessionStorage.setItem("bppay_loader_shown", "1");
-    setShowLoader(false);
-  }
-
   return (
     <QueryClientProvider client={queryClient}>
-      {showLoader && <AppLoadingScreen onDone={handleLoaderDone} />}
       {loggedIn ? (
         <Dashboard onLogout={() => setLoggedIn(false)} />
       ) : (
