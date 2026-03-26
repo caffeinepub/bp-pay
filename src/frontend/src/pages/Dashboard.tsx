@@ -1954,7 +1954,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   style={{ border: `2px solid ${GOLD}55`, background: "#fff" }}
                 >
                   <img
-                    src="/assets/uploads/photo_6201944831857200842_x-019d2093-bb00-70eb-bd05-715d744dc0e8-1.jpg"
+                    src="/assets/uploads/6192863454222290747-019d28c6-c5b2-772d-b783-fc091ed8050b-1.jpg"
                     alt="UPI QR Code"
                     className="w-56 h-56 object-contain"
                   />
