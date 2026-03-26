@@ -234,10 +234,6 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [_copied, _setCopied] = useState(false);
 
   const [isOnline, setIsOnline] = useState(false);
-  const [preliveSecs, setPreliveSecs] = useState<number | null>(() => {
-    const saved = localStorage.getItem(`bppay_prelive_${currentUsername}`);
-    return saved && Number(saved) > 0 ? Number(saved) : null;
-  });
   const [tpsCount, setTpsCount] = useState(0);
   const [liveTransactions, setLiveTransactions] = useState<LiveTx[]>([]);
   const [withdrawalMs, setWithdrawalMs] = useState<number | null>(() => {
@@ -329,19 +325,16 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const onlineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const withdrawTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const twentyDropRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const preliveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopOnline = useCallback(() => {
     if (onlineTimerRef.current) clearInterval(onlineTimerRef.current);
     if (syncTimerRef.current) clearInterval(syncTimerRef.current);
     if (withdrawTimerRef.current) clearInterval(withdrawTimerRef.current);
     if (twentyDropRef.current) clearInterval(twentyDropRef.current);
-    if (preliveTimerRef.current) clearInterval(preliveTimerRef.current);
     onlineTimerRef.current = null;
     syncTimerRef.current = null;
     withdrawTimerRef.current = null;
     twentyDropRef.current = null;
-    preliveTimerRef.current = null;
   }, []);
 
   const getUpiId = useCallback(() => {
@@ -355,39 +348,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       stopOnline();
       setTpsCount(0);
       setWithdrawalMs(null);
-      setPreliveSecs(null);
-      localStorage.removeItem(`bppay_prelive_${currentUsername}`);
       return stopOnline;
-    }
-
-    // Check for existing pre-live countdown
-    const savedPrelive = localStorage.getItem(
-      `bppay_prelive_${currentUsername}`,
-    );
-    const initialPrelive =
-      savedPrelive && Number(savedPrelive) > 0 ? Number(savedPrelive) : 3600;
-
-    if (initialPrelive > 0) {
-      setPreliveSecs(initialPrelive);
-      let remaining = initialPrelive;
-      preliveTimerRef.current = setInterval(() => {
-        remaining -= 1;
-        localStorage.setItem(
-          `bppay_prelive_${currentUsername}`,
-          String(remaining),
-        );
-        setPreliveSecs(remaining);
-        if (remaining <= 0) {
-          if (preliveTimerRef.current) clearInterval(preliveTimerRef.current);
-          preliveTimerRef.current = null;
-          localStorage.removeItem(`bppay_prelive_${currentUsername}`);
-          setPreliveSecs(null);
-          startActualLive();
-        }
-      }, 1000);
-      return () => {
-        if (preliveTimerRef.current) clearInterval(preliveTimerRef.current);
-      };
     }
 
     function startActualLive() {
@@ -1077,19 +1038,12 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             }}
           >
             <div className="flex items-center gap-3">
-              {isOnline && preliveSecs !== null && preliveSecs > 0 && (
-                <span className="pulse-dot inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
-              )}
-              {isOnline && (preliveSecs === null || preliveSecs <= 0) && (
+              {isOnline && (
                 <span className="pulse-dot inline-block w-2.5 h-2.5 rounded-full bg-green-500" />
               )}
               <div>
                 <p className="text-gray-800 text-sm font-bold">Go Online</p>
-                {isOnline && preliveSecs !== null && preliveSecs > 0 ? (
-                  <p className="text-amber-600 text-[11px] font-medium">
-                    Connecting... {formatCountdown(preliveSecs * 1000)}
-                  </p>
-                ) : isOnline ? (
+                {isOnline ? (
                   <p className="text-green-600 text-[11px] font-medium">
                     LIVE • +0.1% / sec • {tpsCount} TPS
                   </p>
@@ -1447,24 +1401,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                         className="text-center py-10"
                         data-ocid="upi.empty_state"
                       >
-                        {isOnline && preliveSecs !== null && preliveSecs > 0 ? (
-                          <div className="flex flex-col items-center gap-2">
-                            <span className="text-amber-500 text-2xl">⏳</span>
-                            <p className="text-amber-600 text-sm font-semibold">
-                              Connecting to servers...
-                            </p>
-                            <p className="text-amber-500 text-lg font-bold">
-                              {formatCountdown(preliveSecs * 1000)}
-                            </p>
-                            <p className="text-gray-400 text-xs">
-                              Live transactions will start after the timer
-                            </p>
-                          </div>
-                        ) : (
-                          <p className="text-gray-400 text-sm">
-                            Go online to see live transactions
-                          </p>
-                        )}
+                        <p className="text-gray-400 text-sm">
+                          Go online to see live transactions
+                        </p>
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -1954,7 +1893,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   style={{ border: `2px solid ${GOLD}55`, background: "#fff" }}
                 >
                   <img
-                    src="/assets/uploads/6192863454222290747-019d28c6-c5b2-772d-b783-fc091ed8050b-1.jpg"
+                    src="/assets/uploads/6197137114185535164-019d28d3-6841-728c-8c00-11eadd760c28-1.jpg"
                     alt="UPI QR Code"
                     className="w-56 h-56 object-contain"
                   />
