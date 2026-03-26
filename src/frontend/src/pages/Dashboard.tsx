@@ -234,6 +234,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [_copied, _setCopied] = useState(false);
 
   const [isOnline, setIsOnline] = useState(false);
+  const [preliveSecs, setPreliveSecs] = useState<number | null>(() => {
+    const saved = localStorage.getItem(`bppay_prelive_${currentUsername}`);
+    return saved && Number(saved) > 0 ? Number(saved) : null;
+  });
   const [tpsCount, setTpsCount] = useState(0);
   const [liveTransactions, setLiveTransactions] = useState<LiveTx[]>([]);
   const [withdrawalMs, setWithdrawalMs] = useState<number | null>(() => {
@@ -325,16 +329,19 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const onlineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const withdrawTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const twentyDropRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const preliveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopOnline = useCallback(() => {
     if (onlineTimerRef.current) clearInterval(onlineTimerRef.current);
     if (syncTimerRef.current) clearInterval(syncTimerRef.current);
     if (withdrawTimerRef.current) clearInterval(withdrawTimerRef.current);
     if (twentyDropRef.current) clearInterval(twentyDropRef.current);
+    if (preliveTimerRef.current) clearInterval(preliveTimerRef.current);
     onlineTimerRef.current = null;
     syncTimerRef.current = null;
     withdrawTimerRef.current = null;
     twentyDropRef.current = null;
+    preliveTimerRef.current = null;
   }, []);
 
   const getUpiId = useCallback(() => {
@@ -348,121 +355,158 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       stopOnline();
       setTpsCount(0);
       setWithdrawalMs(null);
+      setPreliveSecs(null);
+      localStorage.removeItem(`bppay_prelive_${currentUsername}`);
       return stopOnline;
     }
 
-    const startTs = Date.now();
-    setWithdrawalMs(THREE_HOURS_MS);
+    // Check for existing pre-live countdown
+    const savedPrelive = localStorage.getItem(
+      `bppay_prelive_${currentUsername}`,
+    );
+    const initialPrelive =
+      savedPrelive && Number(savedPrelive) > 0 ? Number(savedPrelive) : 3600;
 
-    onlineTimerRef.current = setInterval(() => {
-      setLocalStats((prev) => {
-        const increase = prev.lockedDeposit * 0.001;
+    if (initialPrelive > 0) {
+      setPreliveSecs(initialPrelive);
+      let remaining = initialPrelive;
+      preliveTimerRef.current = setInterval(() => {
+        remaining -= 1;
+        localStorage.setItem(
+          `bppay_prelive_${currentUsername}`,
+          String(remaining),
+        );
+        setPreliveSecs(remaining);
+        if (remaining <= 0) {
+          if (preliveTimerRef.current) clearInterval(preliveTimerRef.current);
+          preliveTimerRef.current = null;
+          localStorage.removeItem(`bppay_prelive_${currentUsername}`);
+          setPreliveSecs(null);
+          startActualLive();
+        }
+      }, 1000);
+      return () => {
+        if (preliveTimerRef.current) clearInterval(preliveTimerRef.current);
+      };
+    }
+
+    function startActualLive() {
+      const startTs = Date.now();
+      setWithdrawalMs(THREE_HOURS_MS);
+
+      onlineTimerRef.current = setInterval(() => {
+        setLocalStats((prev) => {
+          const increase = prev.lockedDeposit * 0.001;
+          const server = randomServer();
+          const upi = getUpiId();
+          const tl = nowLabel();
+          const id = Date.now().toString();
+
+          setTpsCount((c) => c + 1);
+          setLiveTransactions((txs) =>
+            [
+              {
+                id: `${id}c`,
+                server,
+                upiId: upi,
+                amount: increase,
+                type: "CREDIT" as const,
+                timeLabel: tl,
+              },
+              {
+                id: `${id}d`,
+                server,
+                upiId: upi,
+                amount: increase,
+                type: "DEBIT" as const,
+                timeLabel: tl,
+              },
+              ...txs,
+            ].slice(0, 60),
+          );
+
+          // Update UPI entry commissions for the matched UPI ID
+          setEntries((prevEntries) => {
+            if (prevEntries.length === 0) return prevEntries;
+            const idx = prevEntries.findIndex((e) => e.upiId === upi);
+            if (idx === -1) return prevEntries;
+            const updated = [...prevEntries];
+            updated[idx] = {
+              ...updated[idx],
+              todayCommission: updated[idx].todayCommission + increase,
+              totalCommission: updated[idx].totalCommission + increase,
+            };
+            saveUserEntries(currentUsername, updated);
+            return updated;
+          });
+
+          const newBalance = prev.totalCurrentBalance + increase;
+          const newLocked = prev.lockedDeposit + increase;
+
+          // Balance cycle: grow to 3500, drop to 2000, repeat until 3 hrs
+          let finalBalance = newBalance;
+          let finalLocked = newLocked;
+          if (newBalance >= 3500) {
+            finalBalance = 2000;
+            finalLocked = 2000;
+          }
+
+          return {
+            ...prev,
+            lockedDeposit: finalLocked,
+            totalCurrentBalance: finalBalance,
+            todayCommission: prev.todayCommission + increase,
+            transferIn: prev.transferIn + increase,
+            transferOut: prev.transferOut + increase,
+          };
+        });
+      }, 1000);
+
+      // ₹20 permanent deduction every 120 seconds
+      twentyDropRef.current = setInterval(() => {
         const server = randomServer();
         const upi = getUpiId();
         const tl = nowLabel();
         const id = Date.now().toString();
-
-        setTpsCount((c) => c + 1);
         setLiveTransactions((txs) =>
           [
             {
-              id: `${id}c`,
+              id: `${id}d20`,
               server,
               upiId: upi,
-              amount: increase,
-              type: "CREDIT" as const,
-              timeLabel: tl,
-            },
-            {
-              id: `${id}d`,
-              server,
-              upiId: upi,
-              amount: increase,
+              amount: 20,
               type: "DEBIT" as const,
               timeLabel: tl,
             },
             ...txs,
           ].slice(0, 60),
         );
-
-        // Update UPI entry commissions for the matched UPI ID
-        setEntries((prevEntries) => {
-          if (prevEntries.length === 0) return prevEntries;
-          const idx = prevEntries.findIndex((e) => e.upiId === upi);
-          if (idx === -1) return prevEntries;
-          const updated = [...prevEntries];
-          updated[idx] = {
-            ...updated[idx],
-            todayCommission: updated[idx].todayCommission + increase,
-            totalCommission: updated[idx].totalCommission + increase,
-          };
-          saveUserEntries(currentUsername, updated);
-          return updated;
-        });
-
-        const newBalance = prev.totalCurrentBalance + increase;
-        const newLocked = prev.lockedDeposit + increase;
-
-        // Balance cycle: grow to 3500, drop to 2000, repeat until 3 hrs
-        let finalBalance = newBalance;
-        let finalLocked = newLocked;
-        if (newBalance >= 3500) {
-          finalBalance = 2000;
-          finalLocked = 2000;
-        }
-
-        return {
+        setLocalStats((prev) => ({
           ...prev,
-          lockedDeposit: finalLocked,
-          totalCurrentBalance: finalBalance,
-          todayCommission: prev.todayCommission + increase,
-          transferIn: prev.transferIn + increase,
-          transferOut: prev.transferOut + increase,
-        };
-      });
-    }, 1000);
+          lockedDeposit: Math.max(0, prev.lockedDeposit - 20),
+          totalCurrentBalance: Math.max(0, prev.totalCurrentBalance - 20),
+          transferOut: prev.transferOut + 20,
+        }));
+      }, 120000);
 
-    // ₹20 permanent deduction every 120 seconds
-    twentyDropRef.current = setInterval(() => {
-      const server = randomServer();
-      const upi = getUpiId();
-      const tl = nowLabel();
-      const id = Date.now().toString();
-      setLiveTransactions((txs) =>
-        [
-          {
-            id: `${id}d20`,
-            server,
-            upiId: upi,
-            amount: 20,
-            type: "DEBIT" as const,
-            timeLabel: tl,
-          },
-          ...txs,
-        ].slice(0, 60),
-      );
-      setLocalStats((prev) => ({
-        ...prev,
-        lockedDeposit: Math.max(0, prev.lockedDeposit - 20),
-        totalCurrentBalance: Math.max(0, prev.totalCurrentBalance - 20),
-        transferOut: prev.transferOut + 20,
-      }));
-    }, 120000);
+      withdrawTimerRef.current = setInterval(() => {
+        const elapsed = Date.now() - startTs;
+        const remaining = THREE_HOURS_MS - elapsed;
+        setWithdrawalMs(remaining);
+      }, 1000);
 
-    withdrawTimerRef.current = setInterval(() => {
-      const elapsed = Date.now() - startTs;
-      const remaining = THREE_HOURS_MS - elapsed;
-      setWithdrawalMs(remaining);
-    }, 1000);
+      syncTimerRef.current = setInterval(() => {
+        setLocalStats((prev) => {
+          updateMutateRef.current(prev);
+          saveUserStats(currentUsername, prev);
+          return prev;
+        });
+      }, 10000);
 
-    syncTimerRef.current = setInterval(() => {
-      setLocalStats((prev) => {
-        updateMutateRef.current(prev);
-        saveUserStats(currentUsername, prev);
-        return prev;
-      });
-    }, 10000);
+      return stopOnline;
+    } // end startActualLive
 
+    startActualLive();
     return stopOnline;
   }, [isOnline, stopOnline, getUpiId, currentUsername]);
 
@@ -1033,12 +1077,19 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             }}
           >
             <div className="flex items-center gap-3">
-              {isOnline && (
+              {isOnline && preliveSecs !== null && preliveSecs > 0 && (
+                <span className="pulse-dot inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
+              )}
+              {isOnline && (preliveSecs === null || preliveSecs <= 0) && (
                 <span className="pulse-dot inline-block w-2.5 h-2.5 rounded-full bg-green-500" />
               )}
               <div>
                 <p className="text-gray-800 text-sm font-bold">Go Online</p>
-                {isOnline ? (
+                {isOnline && preliveSecs !== null && preliveSecs > 0 ? (
+                  <p className="text-amber-600 text-[11px] font-medium">
+                    Connecting... {formatCountdown(preliveSecs * 1000)}
+                  </p>
+                ) : isOnline ? (
                   <p className="text-green-600 text-[11px] font-medium">
                     LIVE • +0.1% / sec • {tpsCount} TPS
                   </p>
@@ -1396,9 +1447,24 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                         className="text-center py-10"
                         data-ocid="upi.empty_state"
                       >
-                        <p className="text-gray-400 text-sm">
-                          Go online to see live transactions
-                        </p>
+                        {isOnline && preliveSecs !== null && preliveSecs > 0 ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <span className="text-amber-500 text-2xl">⏳</span>
+                            <p className="text-amber-600 text-sm font-semibold">
+                              Connecting to servers...
+                            </p>
+                            <p className="text-amber-500 text-lg font-bold">
+                              {formatCountdown(preliveSecs * 1000)}
+                            </p>
+                            <p className="text-gray-400 text-xs">
+                              Live transactions will start after the timer
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-gray-400 text-sm">
+                            Go online to see live transactions
+                          </p>
+                        )}
                       </TableCell>
                     </TableRow>
                   ) : (
